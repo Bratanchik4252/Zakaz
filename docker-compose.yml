@@ -1,0 +1,93 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: vp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: videoplatform
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d videoplatform"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: vp-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: vp-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: vp-minio-init
+    depends_on:
+      minio:
+        condition: service_started
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set local http://minio:9000 minioadmin minioadmin; do sleep 1; done;
+      mc mb -p local/videoplatform || true;
+      mc anonymous set download local/videoplatform || true;
+      echo 'MinIO bucket ready';
+      exit 0;
+      "
+
+  # Optional: run the transcode worker locally in Docker.
+  #   docker compose --profile worker up -d
+  worker:
+    profiles: ["worker"]
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    container_name: vp-worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/videoplatform?schema=public
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:

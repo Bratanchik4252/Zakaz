@@ -1,0 +1,21 @@
+{
+  "buildCommand": "pnpm prisma:generate && pnpm build",
+  "functions": {
+    "api/index.js": {
+      "memory": 1024,
+      "maxDuration": 60,
+      "includeFiles": [
+        "dist/**",
+        "prisma/**",
+        "node_modules/.prisma/**",
+        "node_modules/@prisma/client/**"
+      ]
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/api"
+    }
+  ]
+}
